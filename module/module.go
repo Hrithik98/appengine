@@ -1,114 +1,64 @@
-// Copyright 2013 Google Inc. All rights reserved.
-// Use of this source code is governed by the Apache 2.0
-// license that can be found in the LICENSE file.
-
-/*
-Package module provides functions for interacting with modules.
-
-The appengine package contains functions that report the identity of the app,
-including the module name.
-*/
-package module // import "google.golang.org/appengine/module"
+package main
 
 import (
-	"context"
+	"fmt"
+	"net/http"
 
-	"github.com/golang/protobuf/proto"
-
-	"google.golang.org/appengine/internal"
-	pb "google.golang.org/appengine/internal/modules"
+	"google.golang.org/appengine"
+	"google.golang.org/appengine/module"
 )
 
-// List returns the names of modules belonging to this application.
-func List(c context.Context) ([]string, error) {
-	req := &pb.GetModulesRequest{}
-	res := &pb.GetModulesResponse{}
-	err := internal.Call(c, "modules", "GetModules", req, res)
-	return res.Module, err
+func handler(w http.ResponseWriter, r *http.Request) {
+	// Create a standard App Engine context
+	ctx := appengine.NewContext(r)
+
+	// 1. List all modules (services) in the application
+	modules, err := module.List(ctx)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error listing modules: %v", err), 500)
+		return
+	}
+	fmt.Fprintf(w, "Modules:\n") // Removed %s as no argument was provided
+	for _, m := range modules {
+		fmt.Fprintf(w, "- %s\n", m)
+	}
+
+	// 2. Identify the current module and its default version
+	currentMod := appengine.ModuleName(ctx)
+	
+	defaultVer, err := module.DefaultVersion(ctx, currentMod)
+	if err != nil {
+		defaultVer = "unknown"
+	}
+	fmt.Fprintf(w, "DefaultVersion %s:\n", defaultVer)
+	
+	// FIX 1: Use module.Versions (plural)
+	// FIX 2: Use := to declare the new variable 'versions'
+	// FIX 3: Define the module name you want to query
+	queryModule := "default"
+	versions, err := module.Versions(ctx, queryModule)
+	if err != nil {
+		http.Error(w, "Could not list versions: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// FIX 4: Use 'queryModule' instead of the undefined 'moduleName'
+	fmt.Fprintf(w, "Versions for module %s:\n", queryModule)
+	for _, v := range versions {
+		fmt.Fprintf(w, "- %s\n", v)
+	}
+
+	// 3. Scale a specific version (if it uses manual scaling)
+	// Note: Removed the trailing space from the module name string
+	err = module.SetNumInstances(ctx, "bundled-services-mail-java-sdk-app", "20251016t135918", 5)
+	if err != nil {
+		fmt.Printf("Scaling failed (expected if not manual scaling): %v\n", err)
+	}
 }
 
-// NumInstances returns the number of instances of the given module/version.
-// If either argument is the empty string it means the default.
-func NumInstances(c context.Context, module, version string) (int, error) {
-	req := &pb.GetNumInstancesRequest{}
-	if module != "" {
-		req.Module = &module
-	}
-	if version != "" {
-		req.Version = &version
-	}
-	res := &pb.GetNumInstancesResponse{}
 
-	if err := internal.Call(c, "modules", "GetNumInstances", req, res); err != nil {
-		return 0, err
-	}
-	return int(*res.Instances), nil
+func main() {
+	http.HandleFunc("/", handler)
+	appengine.Main()
 }
 
-// SetNumInstances sets the number of instances of the given module.version to the
-// specified value. If either module or version are the empty string it means the
-// default.
-func SetNumInstances(c context.Context, module, version string, instances int) error {
-	req := &pb.SetNumInstancesRequest{}
-	if module != "" {
-		req.Module = &module
-	}
-	if version != "" {
-		req.Version = &version
-	}
-	req.Instances = proto.Int64(int64(instances))
-	res := &pb.SetNumInstancesResponse{}
-	return internal.Call(c, "modules", "SetNumInstances", req, res)
-}
-
-// Versions returns the names of the versions that belong to the specified module.
-// If module is the empty string, it means the default module.
-func Versions(c context.Context, module string) ([]string, error) {
-	req := &pb.GetVersionsRequest{}
-	if module != "" {
-		req.Module = &module
-	}
-	res := &pb.GetVersionsResponse{}
-	err := internal.Call(c, "modules", "GetVersions", req, res)
-	return res.GetVersion(), err
-}
-
-// DefaultVersion returns the default version of the specified module.
-// If module is the empty string, it means the default module.
-func DefaultVersion(c context.Context, module string) (string, error) {
-	req := &pb.GetDefaultVersionRequest{}
-	if module != "" {
-		req.Module = &module
-	}
-	res := &pb.GetDefaultVersionResponse{}
-	err := internal.Call(c, "modules", "GetDefaultVersion", req, res)
-	return res.GetVersion(), err
-}
-
-// Start starts the specified version of the specified module.
-// If either module or version are the empty string, it means the default.
-func Start(c context.Context, module, version string) error {
-	req := &pb.StartModuleRequest{}
-	if module != "" {
-		req.Module = &module
-	}
-	if version != "" {
-		req.Version = &version
-	}
-	res := &pb.StartModuleResponse{}
-	return internal.Call(c, "modules", "StartModule", req, res)
-}
-
-// Stop stops the specified version of the specified module.
-// If either module or version are the empty string, it means the default.
-func Stop(c context.Context, module, version string) error {
-	req := &pb.StopModuleRequest{}
-	if module != "" {
-		req.Module = &module
-	}
-	if version != "" {
-		req.Version = &version
-	}
-	res := &pb.StopModuleResponse{}
-	return internal.Call(c, "modules", "StopModule", req, res)
-}
